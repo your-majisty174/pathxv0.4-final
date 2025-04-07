@@ -6,6 +6,11 @@ from streamlit_folium import st_folium
 import openrouteservice
 import sys
 from pathlib import Path
+src_path = Path(__file__).resolve().parent.parent
+if str(src_path) not in sys.path:
+    sys.path.append(str(src_path))
+from dashboard.inventory import render_inventory_editor 
+
 
 # Add the project root to Python path
 project_root = str(Path(__file__).parent.parent.parent)
@@ -209,7 +214,8 @@ with col1:
         # Add Inventory Dashboard section
         st.markdown("---")
         st.subheader("📦 Inventory Dashboard")
-        st.dataframe(inventory_data, use_container_width=True)
+        render_inventory_editor()
+
         
         # Display selected coordinates
         st.subheader("Selected Coordinates")
@@ -218,6 +224,7 @@ with col1:
             "Coordinates": [start_coords, end_coords]
         })
         st.dataframe(coords_df, hide_index=True)
+
         
     except ValueError as e:
         st.error(f"Error parsing coordinates: {str(e)}")
@@ -338,3 +345,4 @@ with col2:
 # Footer
 st.markdown("---")
 st.markdown("© 2024 PathX - Logistics Optimization Platform") 
+
