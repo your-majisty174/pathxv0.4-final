@@ -1,0 +1,16 @@
+pandas>=2.0.0
+numpy>=1.24.0
+requests>=2.31.0
+streamlit>=1.24.0
+openrouteservice>=2.3.0
+matplotlib>=3.7.0
+scikit-learn>=1.2.0
+seaborn>=0.11.1
+jupyter>=1.0.0
+pytest>=6.2.4
+python-dotenv>=0.19.0
+fastapi>=0.68.0
+uvicorn>=0.15.0
+ortools>=9.2.9972
+geopy>=2.2.0
+folium>=0.12.1 
