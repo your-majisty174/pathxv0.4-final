@@ -6,6 +6,12 @@ from streamlit_folium import st_folium
 import openrouteservice
 import sys
 from pathlib import Path
+from route_history import render_route_history
+import calendar
+from datetime import datetime
+from streamlit_calendar import calendar
+
+
 
 # Add src directory to system path
 src_path = Path(__file__).resolve().parent.parent
@@ -13,6 +19,40 @@ if str(src_path) not in sys.path:
     sys.path.append(str(src_path))
 
 from dashboard.inventory import render_inventory_editor
+from dashboard.quick_actions import render_quick_actions
+from dashboard.analytics import render_analytics_summary
+
+
+def render_inventory_trends():
+    st.subheader("📈 Inventory Trends (Simulated)")
+
+    # Simulated time series for inventory items
+    dates = pd.date_range(end=pd.Timestamp.today(), periods=10)
+    data = {
+        "Laptops": np.random.randint(5, 15, size=10),
+        "Monitors": np.random.randint(1, 6, size=10),
+        "Printers": np.random.randint(0, 3, size=10),
+        "Cables": np.random.randint(20, 30, size=10),
+    }
+    trends_df = pd.DataFrame(data, index=dates)
+
+    st.line_chart(trends_df)
+def render_dashboard_overview():
+    st.subheader("📊 Dashboard Overview")
+
+    # Dummy KPIs
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric(label="Total Routes Planned", value="24", delta="+3 today")
+    kpi2.metric(label="Deliveries Completed", value="19", delta="+5%")
+    kpi3.metric(label="Avg. Emissions per Route", value="4.8 kg", delta="-0.3 kg")
+
+    st.markdown("---")
+    st.markdown("### 🔎 Summary")
+    st.write("""
+        - Your fleet planning is improving with higher delivery completion.
+        - Emissions per route are reducing, indicating better optimization.
+        - You’ve planned more routes today than yesterday—keep it up!
+    """)
 
 # Add the project root to Python path
 project_root = str(Path(__file__).parent.parent.parent)
@@ -213,12 +253,17 @@ with col1:
         # Display the map
         st_folium(m, width=700, height=500)
         
+        # Dashboard Overview directly under map
+        render_dashboard_overview()
+
         # Add Inventory Dashboard section
         st.markdown("---")
-        st.subheader("📦 Inventory Dashboard")
         render_inventory_editor()
 
-        
+        # 🔼 Add Inventory Trends under editor, collapsible
+        with st.expander("Show Inventory Trends"):
+             render_inventory_trends()
+
         # Display selected coordinates
         st.subheader("Selected Coordinates")
         coords_df = pd.DataFrame({
@@ -226,6 +271,45 @@ with col1:
             "Coordinates": [start_coords, end_coords]
         })
         st.dataframe(coords_df, hide_index=True)
+       
+        # 📅 Interactive Calendar (Full Width)
+        st.subheader("📅 Delivery Calendar")
+
+        calendar_options = {
+           "initialView": "dayGridMonth",
+           "headerToolbar": {
+              "left": "prev,next today",
+              "center": "title",
+              "right": "dayGridMonth,timeGridWeek"
+            },
+             "height": 500,
+             "editable": False,
+             "selectable": True,
+             "dayMaxEvents": True,
+         }
+
+         # Dummy events just for show
+        calendar_events = [
+             {
+                 "title": "📦 Delivery - Laptops",
+                 "start": f"{datetime.today().strftime('%Y-%m')}-10",
+              },
+              {
+                  "title": "📦 Delivery - Monitors",
+                  "start": f"{datetime.today().strftime('%Y-%m')}-15",
+             },
+              {
+                  "title": "🔄 Inventory Sync",
+                  "start": f"{datetime.today().strftime('%Y-%m')}-20",
+              },
+        ]
+
+        calendar_result = calendar(events=calendar_events, options=calendar_options)
+
+        # Just for fun, show clicked date (if any)
+        if calendar_result and calendar_result.get("dateClick"):
+              st.info(f"You clicked on {calendar_result['dateClick']['date']}")
+
 
         
     except ValueError as e:
@@ -233,69 +317,31 @@ with col1:
         st.info("Please enter coordinates in the format: 'latitude, longitude'")
     except Exception as e:
         st.error(f"An error occurred while calculating the route: {str(e)}")
-
 with col2:
     st.subheader("Route Information")
-    
+
     # Show route information if available
     if st.session_state.route_info['distance'] > 0:
-        # Show success message
         st.success("Route calculated successfully!")
         
-        # Update metrics with values from session state
-        st.metric(
-            label="Total Distance",
-            value=f"{st.session_state.route_info['distance']:.1f} km",
-            delta=None
-        )
-        
-        st.metric(
-            label="Total Duration",
-            value=f"{st.session_state.route_info['duration']:.1f} hours",
-            delta=None
-        )
-        
-        # Calculate emissions based on vehicle type
-        emissions = st.session_state.route_info['emissions']
-        
-        st.metric(
-            label="Estimated CO₂ Emissions",
-            value=f"{emissions:.2f} kg",
-            delta=None
-        )
+        st.metric("Total Distance", f"{st.session_state.route_info['distance']:.1f} km")
+        st.metric("Total Duration", f"{st.session_state.route_info['duration']:.1f} hours")
+        st.metric("Estimated CO₂ Emissions", f"{st.session_state.route_info['emissions']:.2f} kg")
     else:
-        # Show placeholder metrics if no route calculated
-        st.metric(
-            label="Total Distance",
-            value="0 km",
-            delta=None
-        )
-        
-        st.metric(
-            label="Total Duration",
-            value="0 hours",
-            delta=None
-        )
-        
-        st.metric(
-            label="Estimated CO₂ Emissions",
-            value="0 kg",
-            delta=None
-        )
-    
-    # Additional Information
+        st.metric("Total Distance", "0 km")
+        st.metric("Total Duration", "0 hours")
+        st.metric("Estimated CO₂ Emissions", "0 kg")
+
     st.markdown("---")
     st.subheader("Vehicle Details")
     st.write(f"Selected Vehicle: {vehicle_type}")
-    
+
     if st.session_state.route_info['distance'] > 0:
-        # Show vehicle-specific information
         duration = st.session_state.route_info['duration']
-        if duration > 0:  # Avoid division by zero
+        if duration > 0:
             avg_speed = st.session_state.route_info['distance'] / duration
             fuel_efficiency = st.session_state.route_info['distance'] / st.session_state.route_info['emissions']
-            
-            # Vehicle-specific information
+
             vehicle_info = {
                 "Petrol": {
                     "fuel_type": "Gasoline",
@@ -316,12 +362,11 @@ with col2:
                     "typical_range": "300-500 km"
                 }
             }
-            
-            # Route statistics
+
             st.info(f"""
                 ### Route Statistics
                 - Total Distance: {st.session_state.route_info['distance']:.1f} km
-                - Total Duration: {st.session_state.route_info['duration']:.1f} hours
+                - Total Duration: {duration:.1f} hours
                 - Average Speed: {avg_speed:.1f} km/h
                 - Estimated CO₂ Emissions: {st.session_state.route_info['emissions']:.2f} kg
                 - Fuel Efficiency: {fuel_efficiency:.1f} km/kg CO₂
@@ -343,6 +388,15 @@ with col2:
             - Environmental impact
             - Vehicle specifications
         """)
+
+    # ✅ Quick Actions in col2
+    st.markdown("---")
+    render_quick_actions(inventory_data)
+    
+    st.markdown("---")
+    render_route_history()
+
+    render_analytics_summary()
 
 # Footer
 st.markdown("---")
