@@ -6,11 +6,13 @@ from streamlit_folium import st_folium
 import openrouteservice
 import sys
 from pathlib import Path
+
+# Add src directory to system path
 src_path = Path(__file__).resolve().parent.parent
 if str(src_path) not in sys.path:
     sys.path.append(str(src_path))
-from dashboard.inventory import render_inventory_editor 
 
+from dashboard.inventory import render_inventory_editor
 
 # Add the project root to Python path
 project_root = str(Path(__file__).parent.parent.parent)
@@ -345,4 +347,3 @@ with col2:
 # Footer
 st.markdown("---")
 st.markdown("© 2024 PathX - Logistics Optimization Platform") 
-
