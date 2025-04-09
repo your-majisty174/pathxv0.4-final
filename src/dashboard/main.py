@@ -3,30 +3,20 @@ import pandas as pd
 import numpy as np
 import folium
 from streamlit_folium import st_folium
-import openrouteservice
-import sys
-from pathlib import Path
-from route_history import render_route_history
 import calendar
 from datetime import datetime
 from streamlit_calendar import calendar
+import sys; sys.path.append(str(__file__).rsplit("src", 1)[0] + "src")
 
-
-
-# Add src directory to system path
-src_path = Path(__file__).resolve().parent.parent
-if str(src_path) not in sys.path:
-    sys.path.append(str(src_path))
-
+from api.openrouteservice_client import get_route
 from dashboard.inventory import render_inventory_editor
 from dashboard.quick_actions import render_quick_actions
 from dashboard.analytics import render_analytics_summary
+from route_history import render_route_history
 
 
 def render_inventory_trends():
     st.subheader("📈 Inventory Trends (Simulated)")
-
-    # Simulated time series for inventory items
     dates = pd.date_range(end=pd.Timestamp.today(), periods=10)
     data = {
         "Laptops": np.random.randint(5, 15, size=10),
@@ -35,17 +25,15 @@ def render_inventory_trends():
         "Cables": np.random.randint(20, 30, size=10),
     }
     trends_df = pd.DataFrame(data, index=dates)
-
     st.line_chart(trends_df)
+
+
 def render_dashboard_overview():
     st.subheader("📊 Dashboard Overview")
-
-    # Dummy KPIs
     kpi1, kpi2, kpi3 = st.columns(3)
     kpi1.metric(label="Total Routes Planned", value="24", delta="+3 today")
     kpi2.metric(label="Deliveries Completed", value="19", delta="+5%")
     kpi3.metric(label="Avg. Emissions per Route", value="4.8 kg", delta="-0.3 kg")
-
     st.markdown("---")
     st.markdown("### 🔎 Summary")
     st.write("""
@@ -54,276 +42,130 @@ def render_dashboard_overview():
         - You’ve planned more routes today than yesterday—keep it up!
     """)
 
-# Add the project root to Python path
-project_root = str(Path(__file__).parent.parent.parent)
-if project_root not in sys.path:
-    sys.path.append(project_root)
-
-from src.api.openrouteservice_client import get_route
-
-# Create mock inventory dataset
-inventory_data = pd.DataFrame([
-    {"Item": "Laptops", "In Stock": 8, "ETA (hrs)": 3.5},
-    {"Item": "Monitors", "In Stock": 2, "ETA (hrs)": 6.0},
-    {"Item": "Printers", "In Stock": 1, "ETA (hrs)": 4.0},
-    {"Item": "Cables", "In Stock": 25, "ETA (hrs)": 2.0},
-])
-
-# Add Status column based on stock levels
-inventory_data["Status"] = inventory_data["In Stock"].apply(
-    lambda x: "✅ OK" if x >= 5 else "⚠️ Low Stock"
-)
 
 def calculate_emissions(distance_km: float, vehicle_type: str) -> float:
-    """
-    Calculate CO2 emissions based on distance and vehicle type.
-    
-    Args:
-        distance_km: Distance in kilometers
-        vehicle_type: Type of vehicle ("Petrol", "Diesel", or "Electric")
-        
-    Returns:
-        Estimated CO2 emissions in kilograms
-    """
-    # Emission factors in kg CO2 per km
-    emission_factors = {
-        "Petrol": 0.192,  # kg CO2 per km
-        "Diesel": 0.171,  # kg CO2 per km
-        "Electric": 0.05   # kg CO2 per km
-    }
-    
-    if vehicle_type not in emission_factors:
+    factors = {"Petrol": 0.192, "Diesel": 0.171, "Electric": 0.05}
+    if vehicle_type not in factors:
         raise ValueError(f"Invalid vehicle type: {vehicle_type}")
-        
-    return distance_km * emission_factors[vehicle_type]
+    return distance_km * factors[vehicle_type]
 
-# Set page config
-st.set_page_config(
-    page_title="PathX Route Planner",
-    page_icon="🗺️",
-    layout="wide"
-)
 
-# Add custom CSS for better styling
+st.set_page_config(page_title="PathX Route Planner", page_icon="🗺️", layout="wide")
+
 st.markdown("""
     <style>
-    .main {
-        padding: 2rem;
-    }
-    .stButton>button {
-        width: 100%;
-    }
+    .main { padding: 2rem; }
+    .stButton>button { width: 100%; }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# Initialize session state for map and route info
 if 'map_center' not in st.session_state:
-    st.session_state.map_center = [49.41461, 8.681495]  # Default center (Heidelberg)
+    st.session_state.map_center = [49.41461, 8.681495]
 if 'route_points' not in st.session_state:
-    st.session_state.route_points = [
-        [49.41461, 8.681495],  # Start point
-        [49.420318, 8.687872]  # End point
-    ]
+    st.session_state.route_points = [[49.41461, 8.681495], [49.420318, 8.687872]]
 if 'route_info' not in st.session_state:
-    st.session_state.route_info = {
-        'distance': 0,
-        'duration': 0,
-        'emissions': 0
-    }
+    st.session_state.route_info = {'distance': 0, 'duration': 0, 'emissions': 0}
 
-# Title
 st.title("🗺️ PathX Route Planner")
 
-# Sidebar
 with st.sidebar:
     st.header("Route Parameters")
-    
-    # Start and End Coordinates
     st.subheader("Coordinates")
     start_coords = st.text_input("Start (lat, lon)", "49.41461, 8.681495")
     end_coords = st.text_input("End (lat, lon)", "49.420318, 8.687872")
-    
-    # Vehicle Type Selection
     st.subheader("Vehicle Type")
-    vehicle_type = st.selectbox(
-        "Select Vehicle Type",
-        ["Petrol", "Diesel", "Electric"]
-    )
-    
-    # Get Route Button
+    vehicle_type = st.selectbox("Select Vehicle Type", ["Petrol", "Diesel", "Electric"])
     st.markdown("---")
     get_route_btn = st.button("Get Route", type="primary")
 
-# Main Content
 col1, col2 = st.columns([2, 1])
 
 with col1:
     st.subheader("Route Map")
-    
-    # Always show a map, either with default or updated coordinates
     try:
-        # Parse coordinates if button was clicked
         if get_route_btn:
             route_calculated = False
             try:
                 start_lat, start_lon = map(float, start_coords.split(','))
                 end_lat, end_lon = map(float, end_coords.split(','))
-                
-                # Validate coordinates
+
                 if not (-90 <= start_lat <= 90 and -180 <= start_lon <= 180):
-                    raise ValueError("Invalid start coordinates: must be between -90 to 90 for latitude and -180 to 180 for longitude")
+                    raise ValueError("Invalid start coordinates")
                 if not (-90 <= end_lat <= 90 and -180 <= end_lon <= 180):
-                    raise ValueError("Invalid end coordinates: must be between -90 to 90 for latitude and -180 to 180 for longitude")
-                
-                # Round coordinates to 6 decimal places (about 11cm precision)
-                start_lat = round(start_lat, 6)
-                start_lon = round(start_lon, 6)
-                end_lat = round(end_lat, 6)
-                end_lon = round(end_lon, 6)
-                
-                # Prepare coordinates for API call (note: OpenRouteService expects [lon, lat] tuples)
+                    raise ValueError("Invalid end coordinates")
+
                 coords = [(start_lon, start_lat), (end_lon, end_lat)]
-                
-                # Get route from OpenRouteService
                 route_info = get_route(coords)
-                
-                # The geometry is now a list of coordinates, no need to decode
                 route_coords = [(lat, lon) for lon, lat in route_info['geometry']]
-                
-                # Update session state with new coordinates
                 st.session_state.map_center = [(start_lat + end_lat) / 2, (start_lon + end_lon) / 2]
                 st.session_state.route_points = route_coords
-                
-                # Update route info in session state
                 st.session_state.route_info = {
-                    'distance': route_info['distance'] / 1000,  # Convert to km
-                    'duration': route_info['duration'] / 3600,  # Convert to hours
+                    'distance': route_info['distance'] / 1000,
+                    'duration': route_info['duration'] / 3600,
                     'emissions': calculate_emissions(route_info['distance'] / 1000, vehicle_type)
                 }
-                
                 route_calculated = True
-                
+
             except ValueError as e:
                 st.error(f"Error parsing coordinates: {str(e)}")
-                st.info("Please enter coordinates in the format: 'latitude, longitude'")
             except Exception as e:
-                error_msg = str(e)
-                if "Could not find routable point" in error_msg:
-                    st.error("No route found between the specified coordinates. Please try different locations.")
-                    st.info("Make sure the coordinates are near roads or paths that can be routed.")
+                msg = str(e)
+                if "Could not find routable point" in msg:
+                    st.error("No route found. Try different locations.")
                 else:
-                    st.error(f"An error occurred while calculating the route: {error_msg}")
-            
-            if not route_calculated:
-                # If route calculation failed, use default coordinates
-                st.session_state.map_center = [49.41461, 8.681495]  # Default center (Heidelberg)
-                st.session_state.route_points = [
-                    [49.41461, 8.681495],  # Start point
-                    [49.420318, 8.687872]  # End point
-                ]
-        
-        # Create map with current center
-        m = folium.Map(
-            location=st.session_state.map_center,
-            zoom_start=13,
-            tiles='OpenStreetMap'
-        )
-        
-        # Add markers for start and end points
-        folium.Marker(
-            st.session_state.route_points[0],
-            popup='Start',
-            icon=folium.Icon(color='green', icon='info-sign')
-        ).add_to(m)
-        
-        folium.Marker(
-            st.session_state.route_points[-1],
-            popup='End',
-            icon=folium.Icon(color='red', icon='info-sign')
-        ).add_to(m)
-        
-        # Add the route line
-        folium.PolyLine(
-            locations=st.session_state.route_points,
-            color='blue',
-            weight=5,
-            opacity=1
-        ).add_to(m)
-        
-        # Display the map
-        st_folium(m, width=700, height=500)
-        
-        # Dashboard Overview directly under map
-        render_dashboard_overview()
+                    st.error(f"Error: {msg}")
 
-        # Add Inventory Dashboard section
+            if not route_calculated:
+                st.session_state.map_center = [49.41461, 8.681495]
+                st.session_state.route_points = [[49.41461, 8.681495], [49.420318, 8.687872]]
+
+        m = folium.Map(location=st.session_state.map_center, zoom_start=13, tiles='OpenStreetMap')
+        folium.Marker(st.session_state.route_points[0], popup='Start', icon=folium.Icon(color='green')).add_to(m)
+        folium.Marker(st.session_state.route_points[-1], popup='End', icon=folium.Icon(color='red')).add_to(m)
+        folium.PolyLine(st.session_state.route_points, color='blue', weight=5).add_to(m)
+        st_folium(m, width=700, height=500)
+
+        render_dashboard_overview()
         st.markdown("---")
         render_inventory_editor()
-
-        # 🔼 Add Inventory Trends under editor, collapsible
         with st.expander("Show Inventory Trends"):
-             render_inventory_trends()
+            render_inventory_trends()
 
-        # Display selected coordinates
         st.subheader("Selected Coordinates")
-        coords_df = pd.DataFrame({
+        st.dataframe(pd.DataFrame({
             "Location": ["Start", "End"],
             "Coordinates": [start_coords, end_coords]
-        })
-        st.dataframe(coords_df, hide_index=True)
-       
-        # 📅 Interactive Calendar (Full Width)
+        }), hide_index=True)
+
         st.subheader("📅 Delivery Calendar")
-
         calendar_options = {
-           "initialView": "dayGridMonth",
-           "headerToolbar": {
-              "left": "prev,next today",
-              "center": "title",
-              "right": "dayGridMonth,timeGridWeek"
+            "initialView": "dayGridMonth",
+            "headerToolbar": {
+                "left": "prev,next today",
+                "center": "title",
+                "right": "dayGridMonth,timeGridWeek"
             },
-             "height": 500,
-             "editable": False,
-             "selectable": True,
-             "dayMaxEvents": True,
-         }
-
-         # Dummy events just for show
+            "height": 500,
+            "editable": False,
+            "selectable": True,
+            "dayMaxEvents": True,
+        }
         calendar_events = [
-             {
-                 "title": "📦 Delivery - Laptops",
-                 "start": f"{datetime.today().strftime('%Y-%m')}-10",
-              },
-              {
-                  "title": "📦 Delivery - Monitors",
-                  "start": f"{datetime.today().strftime('%Y-%m')}-15",
-             },
-              {
-                  "title": "🔄 Inventory Sync",
-                  "start": f"{datetime.today().strftime('%Y-%m')}-20",
-              },
+            {"title": "📦 Delivery - Laptops", "start": f"{datetime.today().strftime('%Y-%m')}-10"},
+            {"title": "📦 Delivery - Monitors", "start": f"{datetime.today().strftime('%Y-%m')}-15"},
+            {"title": "🔄 Inventory Sync", "start": f"{datetime.today().strftime('%Y-%m')}-20"},
         ]
+        result = calendar(events=calendar_events, options=calendar_options)
+        if result and result.get("dateClick"):
+            st.info(f"You clicked on {result['dateClick']['date']}")
 
-        calendar_result = calendar(events=calendar_events, options=calendar_options)
-
-        # Just for fun, show clicked date (if any)
-        if calendar_result and calendar_result.get("dateClick"):
-              st.info(f"You clicked on {calendar_result['dateClick']['date']}")
-
-
-        
-    except ValueError as e:
-        st.error(f"Error parsing coordinates: {str(e)}")
-        st.info("Please enter coordinates in the format: 'latitude, longitude'")
     except Exception as e:
-        st.error(f"An error occurred while calculating the route: {str(e)}")
+        st.error(f"Unexpected error: {str(e)}")
+
 with col2:
     st.subheader("Route Information")
-
-    # Show route information if available
     if st.session_state.route_info['distance'] > 0:
         st.success("Route calculated successfully!")
-        
         st.metric("Total Distance", f"{st.session_state.route_info['distance']:.1f} km")
         st.metric("Total Duration", f"{st.session_state.route_info['duration']:.1f} hours")
         st.metric("Estimated CO₂ Emissions", f"{st.session_state.route_info['emissions']:.2f} kg")
@@ -335,69 +177,45 @@ with col2:
     st.markdown("---")
     st.subheader("Vehicle Details")
     st.write(f"Selected Vehicle: {vehicle_type}")
-
     if st.session_state.route_info['distance'] > 0:
-        duration = st.session_state.route_info['duration']
-        if duration > 0:
-            avg_speed = st.session_state.route_info['distance'] / duration
-            fuel_efficiency = st.session_state.route_info['distance'] / st.session_state.route_info['emissions']
-
-            vehicle_info = {
-                "Petrol": {
-                    "fuel_type": "Gasoline",
-                    "avg_consumption": "6-8 L/100km",
-                    "co2_per_km": "0.192 kg",
-                    "typical_range": "400-600 km"
-                },
-                "Diesel": {
-                    "fuel_type": "Diesel",
-                    "avg_consumption": "5-7 L/100km",
-                    "co2_per_km": "0.171 kg",
-                    "typical_range": "600-800 km"
-                },
-                "Electric": {
-                    "fuel_type": "Electricity",
-                    "avg_consumption": "15-20 kWh/100km",
-                    "co2_per_km": "0.05 kg",
-                    "typical_range": "300-500 km"
-                }
+        d = st.session_state.route_info['distance']
+        t = st.session_state.route_info['duration']
+        if t > 0:
+            v_info = {
+                "Petrol": {"fuel_type": "Gasoline", "avg": "6-8 L/100km", "co2": "0.192 kg", "range": "400-600 km"},
+                "Diesel": {"fuel_type": "Diesel", "avg": "5-7 L/100km", "co2": "0.171 kg", "range": "600-800 km"},
+                "Electric": {"fuel_type": "Electricity", "avg": "15-20 kWh/100km", "co2": "0.05 kg", "range": "300-500 km"}
             }
-
             st.info(f"""
                 ### Route Statistics
-                - Total Distance: {st.session_state.route_info['distance']:.1f} km
-                - Total Duration: {duration:.1f} hours
-                - Average Speed: {avg_speed:.1f} km/h
-                - Estimated CO₂ Emissions: {st.session_state.route_info['emissions']:.2f} kg
-                - Fuel Efficiency: {fuel_efficiency:.1f} km/kg CO₂
-                
-                ### Vehicle Information
-                - Fuel Type: {vehicle_info[vehicle_type]['fuel_type']}
-                - Average Consumption: {vehicle_info[vehicle_type]['avg_consumption']}
-                - CO₂ Emissions per km: {vehicle_info[vehicle_type]['co2_per_km']}
-                - Typical Range: {vehicle_info[vehicle_type]['typical_range']}
+                - Total Distance: {d:.1f} km
+                - Total Duration: {t:.1f} hours
+                - Average Speed: {d/t:.1f} km/h
+                - CO₂ Emissions: {st.session_state.route_info['emissions']:.2f} kg
+                - Fuel Efficiency: {d / st.session_state.route_info['emissions']:.1f} km/kg CO₂
+
+                ### Vehicle Info
+                - Fuel Type: {v_info[vehicle_type]['fuel_type']}
+                - Avg Consumption: {v_info[vehicle_type]['avg']}
+                - CO₂ per km: {v_info[vehicle_type]['co2']}
+                - Range: {v_info[vehicle_type]['range']}
             """)
         else:
-            st.info("Route duration is zero, cannot calculate speed and efficiency")
+            st.info("Duration is zero — cannot compute speed/efficiency.")
     else:
-        st.info("""
-            ### Vehicle Information
-            Select a vehicle type and calculate a route to see detailed information about:
-            - Route statistics (distance, duration, speed)
-            - Fuel consumption and efficiency
-            - Environmental impact
-            - Vehicle specifications
-        """)
+        st.info("Select a vehicle and generate route to view stats.")
 
-    # ✅ Quick Actions in col2
     st.markdown("---")
-    render_quick_actions(inventory_data)
-    
+    render_quick_actions(pd.DataFrame([
+        {"Item": "Laptops", "In Stock": 8, "ETA (hrs)": 3.5},
+        {"Item": "Monitors", "In Stock": 2, "ETA (hrs)": 6.0},
+        {"Item": "Printers", "In Stock": 1, "ETA (hrs)": 4.0},
+        {"Item": "Cables", "In Stock": 25, "ETA (hrs)": 2.0},
+    ]))
     st.markdown("---")
     render_route_history()
-
     render_analytics_summary()
 
-# Footer
 st.markdown("---")
-st.markdown("© 2024 PathX - Logistics Optimization Platform") 
+st.markdown("© 2024 PathX - Logistics Optimization Platform")
+
